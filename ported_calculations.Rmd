@@ -1,7 +1,7 @@
 ---
 title: "unequal_climate"
-author: "bkd"
-date: "26/05/2020"
+author: "bkd and dmi"
+date: "03/06/2020"
 output: html_document
 ---
 
@@ -10,10 +10,13 @@ library(tidyverse)
 library(readxl)
 library(countrycode)
 library(ggplot2)
+library(ineq)
+library(gglorenz)
+
 ```
 
 ```{r}
-# Bruke, Hsiang, Miguel (2015)
+# Burke, Hsiang, Miguel (2015)
 # https://web.stanford.edu/~mburke/climate/data.html
 
 df1 <- read_csv("GDPcap_ClimateChange_RCP85_SSP5.csv")
@@ -82,15 +85,38 @@ df_ <- unpop %>%
   na.omit()
 
 head(df_)
+
+
+df_2 <- unpop %>%
+  mutate_at(vars('pop2099','pop2020'), function(x) as.numeric(x)) %>%
+  select(-Country, country_code) %>%
+  left_join(cc_hsiang, by='ISO2') %>%
+  group_by() %>%
+  mutate(pop_share = pop2099 / sum(pop2099)) %>%
+  mutate(pop_share2020 = pop2020 / sum(pop2020)) %>%
+  na.omit()
+
+head(df_2)
+
+
+
+
 ```
 
 Calculate different means
 
 ```{r}
-print(sprintf("A: %f", sum(-df_['impact']) / sum(df_['nochange2099'])))
+print(sprintf("A: %f", sum(df_['impact']) / sum(df_['nochange2099'])))
 print(sprintf("B: %f", mean(df_$impact_sh)))
 print(sprintf("C: %f", sum(df_['impact_sh'] * df_['pop_share2020'])))
 print(sprintf("D: %f", sum(df_['impact_sh'] * df_['pop_share'])))
+
+
+print(sprintf("A-Hsiang: %f", sum(df_2['impact']) / sum(df_2['nochange2099'])))
+print(sprintf("B-Hsiang: %f", mean(df_2$impact_sh)))
+print(sprintf("C-Hsiang: %f", sum(df_2['impact_sh'] * df_2['pop_share2020'])))
+print(sprintf("D-Hsiang: %f", sum(df_2['impact_sh'] * df_2['pop_share'])))
+
 ```
 
 
@@ -275,5 +301,52 @@ weighted_df %>%
   filter(ISO2 == 'IT') %>%
   ggplot(aes(x=adj)) +
   geom_histogram()
+```
+
+```{r}
+global_gini<- weighted_df %>%
+  select(inc_damage, inc, ISO2, loss_perc) %>%
+  mutate(inc_w_damage=inc*(1+loss_perc)) %>% 
+  group_by() %>% 
+  mutate(total_inc=sum(inc)) %>% 
+  mutate(total_inc_w_damage=sum(inc_w_damage)) %>% 
+  ungroup() %>% 
+  arrange(inc) %>% 
+  mutate(distrib_inc=(cumsum(inc)/total_inc)) %>% 
+  mutate(distrib_inc_w_damage=(cumsum(inc_w_damage)/total_inc_w_damage)) %>% 
+  mutate(id = row_number())
+
+
+
+ggplot(global_gini) + 
+  stat_lorenz(aes(distrib_inc, color='blue')) + 
+  stat_lorenz(aes(distrib_inc_w_damage, color='red')) + 
+  geom_abline(color = "grey")+
+  scale_color_discrete(name = "Income distribution", labels = c("No climate change", "With climate change"))+
+  labs(title=("Global income disribution - Lorenz curve")) +
+ xlab("Income distribution") + ylab("Cumulative income shares") 
+
+ggsave("lorenz_global.jpg")
+
+print(sprintf("Global Gini no climate change: %f", Gini(global_gini$distrib_inc, corr = TRUE)))
+print(sprintf("Global Gini w climate change: %f", Gini(global_gini$distrib_inc_w_damage, corr = TRUE)))
+
+Gini(global_gini$distrib_inc, corr = TRUE)
+Gini(global_gini$distrib_inc_w_damage, corr = TRUE)
+
+
+#ggplot(global_gini) + geom_abline(colour='Grey', size=1)+
+# xlab("Ordered income") + ylab("Cumulative incomeshare") +
+#  geom_line(aes(id,distrib_inc, color="red"))+
+#  geom_line(aes(id,distrib_inc_w_damage, color="blue")) +
+#  scale_color_discrete(name = "Income distribution", labels = c("No climate change", "With climate change"))+
+#  labs(title=("Global income disribution - Lorenz curve")) 
+
+
+#plot(Lc(global_gini$inc),col="darkred",lwd=2)
+#plot(Lc(global_gini$inc_w_damage),col="blue",lwd=2)
+
+
+
 ```
 
