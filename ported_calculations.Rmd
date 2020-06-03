@@ -12,6 +12,9 @@ library(countrycode)
 library(ggplot2)
 library(ineq)
 library(gglorenz)
+library(countrycode)
+library(wbstats)
+
 
 ```
 
@@ -350,3 +353,31 @@ Gini(global_gini$distrib_inc_w_damage, corr = TRUE)
 
 ```
 
+```{r}
+
+wb_geo <- wb_cachelist$countries %>% 
+  select(iso2c, income, incomeID, region, regionID) %>% 
+  rename(ISO2= iso2c)
+
+global_geo<-global_gini %>% 
+  left_join(wb_geo, by="ISO2") %>% 
+  mutate(ln_inc=log(inc))
+  
+
+ggplot(global_geo) + xlab("Income") + ylab("Damge") +
+  geom_point(aes(inc, loss_perc, color=factor(regionID)))+
+  labs(title=("Global disribution of income vs climate damages")) 
+  
+  
+ggplot(global_geo) + xlab("Log income - 15<x<30") + ylab("Damage percent") +
+  geom_point(aes(ln_inc, loss_perc, color=factor(income)), size=1)+xlim(15,30)+
+  labs(title=("Global disribution of income vs climate damages")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+
+  ggsave("damage by income group.jpg")
+
+
+#  scale_color_discrete(name = "Income distribution", labels = c("No climate change", "With climate change"))+
+#  labs(title=("Global income disribution - Lorenz curve")) 
+
+```
