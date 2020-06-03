@@ -1,0 +1,279 @@
+---
+title: "unequal_climate"
+author: "bkd"
+date: "26/05/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(countrycode)
+library(ggplot2)
+```
+
+```{r}
+# Bruke, Hsiang, Miguel (2015)
+# https://web.stanford.edu/~mburke/climate/data.html
+
+df1 <- read_csv("GDPcap_ClimateChange_RCP85_SSP5.csv")
+df1 <- df1 %>%
+  select(ISO3, ISO2, `2099`) %>%
+  rename(total2099 = `2099`)
+
+df2 <- read_csv("GDPcap_NOClimateChange_RCP85_SSP5.csv") %>%
+  select(ISO3, ISO2, `2099`) %>%
+  rename(nochange2099 = `2099`)
+
+cc_hsiang <- df1 %>%
+  left_join(df2, by=c("ISO2","ISO3")) %>%
+  mutate(impact = total2099 - nochange2099) %>%
+  mutate(impact_sh = impact / nochange2099)
+
+head(cc_hsiang)
+
+# GDP per capita 1000 USD
+```
+
+
+
+```{r}
+cc <- read_xlsx("totalimpactreep.xlsx", sheet="country", skip = 1)
+
+cc <- cc %>%
+  select(Country, Meta) %>%
+  mutate(ISO2 = countrycode(Country, 'country.name', 'iso2c')) %>%
+  left_join(cc_hsiang %>% select(ISO2, nochange2099)) %>%
+  mutate(impact_sh = Meta / 100) %>%
+  mutate(impact = impact_sh * nochange2099)
+
+cc
+
+## back to Tol after all
+## singapore missing :(
+```
+
+```{r}
+## add UN POP data
+## https://population.un.org/wpp/Download/Standard/Population/
+
+unpop <- read_xlsx("WPP2019_POP_F01_1_TOTAL_POPULATION_BOTH_SEXES (2).xlsx", sheet="MEDIUM VARIANT", skip=16)
+unpop <- unpop %>%
+  filter(Type == 'Country/Area') %>%
+  select('Region, subregion, country or area *','Country code','2099','2020')
+
+colnames(unpop) <- c('Country','country_code','pop2099','pop2020')
+
+unpop <- unpop %>%
+  mutate(ISO2 = countrycode(Country, 'country.name', 'iso2c'))
+
+head(unpop)
+
+```
+
+```{r}
+df_ <- unpop %>%
+  mutate_at(vars('pop2099','pop2020'), function(x) as.numeric(x)) %>%
+  select(-Country, country_code) %>%
+  left_join(cc, by='ISO2') %>%
+  group_by() %>%
+  mutate(pop_share = pop2099 / sum(pop2099)) %>%
+  mutate(pop_share2020 = pop2020 / sum(pop2020)) %>%
+  na.omit()
+
+head(df_)
+```
+
+Calculate different means
+
+```{r}
+print(sprintf("A: %f", sum(-df_['impact']) / sum(df_['nochange2099'])))
+print(sprintf("B: %f", mean(df_$impact_sh)))
+print(sprintf("C: %f", sum(df_['impact_sh'] * df_['pop_share2020'])))
+print(sprintf("D: %f", sum(df_['impact_sh'] * df_['pop_share'])))
+```
+
+
+```{r}
+# powers are pre-calculated 
+
+gini_wb <- read_csv("lorenz_gini_wb.csv")
+
+gini_wb <- gini_wb %>% 
+  mutate(ISO2 = countrycode(ctr, 'country.name', 'iso2c'))
+
+gini_wb
+```
+
+```{r}
+data.frame(
+  "x" = seq(0,1,0.01),
+  "y" = sapply(seq(0,1,0.01), function (x) x**gini_wb[gini_wb$ctr=='Iceland',]$power),
+  "ctr" = "Iceland"
+) %>%
+  bind_rows(data.frame(
+  "x" = seq(0,1,0.01),
+  "y" = sapply(seq(0,1,0.01), function (x) x**gini_wb[gini_wb$ctr=='South Africa',]$power),
+  "ctr" = "South Africa"
+)) %>%
+  bind_rows(data.frame(
+  "x" = seq(0,1,0.01),
+  "y" = sapply(seq(0,1,0.01), function (x) x**gini_wb[gini_wb$ctr=='Nigeria',]$power),
+  "ctr" = "Nigeria"
+)) %>%
+  ggplot(aes(x=x, y=y, colour=ctr)) +
+  geom_line()
+
+```
+
+```{r}
+decompose <- function(gini){
+  g = function(x){return(x ** gini)}
+  z = seq(0, 1, 0.01)
+  ls = sapply(z, g)
+  return(ls)
+}
+
+base <- data.frame()
+list_of <- lapply(gini_wb$power, function(x){cbind(seq(0,100),decompose(x))})
+base <- data.frame()
+for(i in seq(1,length(list_of))){
+  df <- data.frame("v" = list_of[i]) %>%
+    mutate(ISO2 = gini_wb$ISO2[i])
+  
+  base <- base %>%
+    bind_rows(df)
+}
+
+colnames(base) <- c("perc","coeff","ISO2")
+
+base <- base %>%
+  mutate(inc_share = coeff - lag(coeff,1)) %>%
+  mutate(inc_share = ifelse(inc_share < 0, 0, inc_share))
+
+base %>%
+  filter(ISO2 %in% c('HU','ZA','US')) %>%
+  ggplot(aes(x=perc, y=inc_share, color=ISO2)) +
+  geom_line()
+
+## income share from total income
+```
+
+```{r}
+new <- base %>%
+  left_join(df_, by='ISO2') %>%
+  mutate(inc = inc_share * nochange2099 * pop2099 * 1000) %>%
+  replace_na(list(inc=0)) %>%
+  na.omit()
+
+new
+```
+
+```{r}
+# calc bottom 40% to total rate
+
+r40 <- new %>%
+  select(perc, inc, ISO2) %>%
+  filter(perc < 41) %>%
+  group_by(ISO2) %>%
+  summarize(rate40 = sum(inc)) %>%
+  left_join(new %>% select(perc, inc, ISO2), by='ISO2') %>%
+  group_by(ISO2) %>%
+  mutate(rate40 = rate40 / sum(inc)) %>%
+  mutate(rate40_ln = log(rate40)) %>%
+  mutate(rate40_f = .53 / (rate40_ln + 1)) %>%
+  na.omit() %>%
+  select(ISO2, rate40, rate40_ln, rate40_f) %>%
+  distinct()
+
+r40
+```
+
+```{r}
+# inc --> total income per percentile (USD)
+# impact --> per capita loss total (USD)
+
+# Hsiang (2015), uniform
+# impact
+
+# apply Dennig et al (2015)
+# Q_it is given by x['inc']
+# D is given by x['gdp_loss_in_perc']
+
+# apply 1.7 Hallegatte (2017)
+# bottom 40% 1.7 damage, compared to avg 1.0
+
+df <- new %>%
+  filter(inc != 0) %>%
+  left_join(r40 %>% select(ISO2, rate40_f), by='ISO2') %>%
+  mutate(e = rate40_f) %>%
+  mutate(q = inc) %>%
+  mutate(k_ = (q + 0.00001) ** e) %>%
+  group_by(ISO2) %>%
+  mutate(k_ = sum(k_)) %>%
+  mutate(k = 1 / k_) %>%
+  mutate(d = k * (q + 0.00001) ** e) %>%
+  mutate(inc_damage = impact * pop2099 * 1000 * d) %>%
+  mutate(loss_perc = inc_damage / (inc + 0.00001)) %>%
+  mutate(loss_perc = ifelse(loss_perc < -1, -1, loss_perc)) %>%
+  mutate(loss_perc = ifelse(loss_perc > 3, 3, loss_perc))
+
+df %>%
+  filter(ISO2 %in% c('ZA','HU','US','NG')) %>%
+  select(perc, loss_perc, inc, inc_damage)  %>%
+  ggplot(aes(x=perc, y=loss_perc, color=ISO2)) +
+  geom_line(stat="identity")
+```
+
+```{r}
+weighted_df <- df[1,]
+
+set.seed(1234)
+
+fun <- function(m, sd) {
+  val <-  rnorm(1,m,sd)
+  return(val)
+}
+
+subset(df, ISO2 == "IT") %>%
+  mutate(sd_loss = sd(loss_perc) / 20) %>%
+  rowwise() %>%
+  mutate(adj = map2_dbl(loss_perc, sd_loss, fun)) %>%
+  select(adj, loss_perc, sd_loss) %>%
+  ggplot(aes(x=adj, y=loss_perc)) +
+  geom_point()
+
+# options(scipen = 999)
+# options("scipen"=-100, "digits"=4)
+
+cntr = 0
+for(c in unique(df$ISO2)){
+  # div 10,000   round 
+  # with pop2099 (denominated in 1000 ppl)
+  df_ <- subset(df, ISO2 == c) %>%
+    mutate(sd_loss = sd(loss_perc) / 20) %>%
+    rowwise() %>%
+    mutate(adj = map2_dbl(loss_perc, sd_loss, fun))
+  
+  df_ <- df_ %>%
+    slice(rep(1:n(), each = ceiling(max(df_$pop2099)/1000)))
+  
+  weighted_df <- weighted_df %>%
+    bind_rows(df_)
+  
+  cntr <- cntr+1
+  if(cntr %% 50 == 0){
+    print(cntr)    
+  }
+
+}
+
+head(weighted_df)
+```
+```{r}
+weighted_df %>%
+  filter(ISO2 == 'IT') %>%
+  ggplot(aes(x=adj)) +
+  geom_histogram()
+```
+
