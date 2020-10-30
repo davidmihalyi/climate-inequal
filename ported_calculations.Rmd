@@ -8,6 +8,8 @@ output: html_document
 ```{r}
 library(tidyverse)
 library(readxl)
+library(dplyr)
+
 library(countrycode)
 library(ggplot2)
 library(ineq)
@@ -15,7 +17,10 @@ library(gglorenz)
 library(countrycode)
 library(wbstats)
 
-
+#install.packages("devtools")
+library(devtools)
+#install.packages("ggpubr")
+library(ggpubr)
 ```
 
 ```{r}
@@ -361,10 +366,12 @@ wb_geo <- wb_cachelist$countries %>%
 
 global_geo<-global_gini %>% 
   left_join(wb_geo, by="ISO2") %>% 
-  mutate(ln_inc=log(inc))
+  mutate(ln_inc=log(inc)) %>%
+  mutate(loser=ifelse(loss_perc<0,TRUE,FALSE))
+  
   
 
-ggplot(global_geo) + xlab("Income") + ylab("Damge") +
+ggplot(global_geo) + xlab("Income") + ylab("Damage") +
   geom_point(aes(inc, loss_perc, color=factor(regionID)))+
   labs(title=("Global disribution of income vs climate damages")) 
   
@@ -375,6 +382,45 @@ ggplot(global_geo) + xlab("Log income - 15<x<30") + ylab("Damage percent") +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1))
 
   ggsave("damage by income group.jpg")
+
+
+#  scale_color_discrete(name = "Income distribution", labels = c("No climate change", "With climate change"))+
+#  labs(title=("Global income disribution - Lorenz curve")) 
+
+```
+
+```{r}
+
+
+
+losers<-global_geo %>% 
+  filter(loser==TRUE)  
+
+
+winners<-global_geo %>% 
+  filter(loser==FALSE)  
+
+
+#ggplot2.histogram(data=global_geo, xName='inc',
+#        groupName='loser', legendPosition="top",
+#        alpha=0.5, position="stack")
+
+
+gghistogram(data=global_geo, x = "inc",
+   add = "mean", rug = TRUE,
+   color = "loser", fill = "loser",
+   palette = c("#00AFBB", "#E7B800"), legendPosition="top",
+        alpha=0.5, position="identity", bins=20)
+
+
+  ggsave("hist1.jpg")
+
+hist(winners$inc,col="green",pch=20,breaks=30)
+hist(losers$inc,col="red",pch=20,breaks=30,add=TRUE)
+legend("topright", c("winners", "losers"), fill=c("red", "green"))
+box()
+
+  ggsave("hist1-b.jpg")
 
 
 #  scale_color_discrete(name = "Income distribution", labels = c("No climate change", "With climate change"))+
