@@ -1,0 +1,8 @@
+[1] "A- Simple mean (equal weight): -19.2 %"
+[1] "B- Median country: -77.3 %"
+[1] "C- Population weighted (2020): -48.5 %"
+[1] "D- Population weighted (2099): -60.7 %"
+[1] "E- GDP weighted (2020):-3.8 %"
+[1] "F- GDP weighted (2099 under no climate change scenario): -45.5 %"
+[1] "G- Emission weighted (2018): -9.2 %"
+[1] "H- Cumulative emission weighted (1751-2018): 17.6 %"

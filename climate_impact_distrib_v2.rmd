@@ -1,0 +1,376 @@
+---
+title: "unequal_climate"
+author: "bkd and dmi"
+date: "03/06/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(dplyr)
+
+library(countrycode)
+library(ggplot2)
+library(ineq)
+library(gglorenz)
+library(countrycode)
+#install.packages("C:\\wbstats_1.0.1.tar.gz", repos = NULL, type="source")
+
+#install.packages("devtools")
+library(devtools)
+#install.packages("ggpubr")
+library(ggpubr)
+```
+
+```{r}
+# Burke, Hsiang, Miguel (2015)
+# https://web.stanford.edu/~mburke/climate/data.html
+
+df1 <- read_csv("GDPcap_ClimateChange_RCP85_SSP5.csv")
+df1 <- df1 %>%
+  select(ISO3, ISO2, `2099`, `2020`) %>%
+  rename(gdppc_CC_2099 = `2099`) %>% 
+    rename(gdppc_CC_2020 = `2020`) 
+
+
+df2 <- read_csv("GDPcap_NOClimateChange_RCP85_SSP5.csv") %>%
+  select(ISO3, ISO2, `2099`, `2020`) %>%
+  rename(gdppc_NOCC_2099 = `2099`) %>% 
+      rename(gdppc_NOCC_2020 = `2020`) 
+
+
+cc_hsiang <- df1 %>%
+  left_join(df2, by=c("ISO2","ISO3")) %>%
+  mutate(gdppc_impact = gdppc_CC_2099 - gdppc_NOCC_2099) %>%
+  mutate(impact_sh = gdppc_impact / gdppc_NOCC_2099)
+
+head(cc_hsiang)
+
+# GDP per capita 1000 USD
+```
+
+
+
+```{r}
+
+
+
+gdp2019 <- wbstats::wb(country = "countries_only", indicator = c("NY.GDP.MKTP.CD"), mrv = 20, gapfill = TRUE) %>% filter(date==2019) %>% 
+  select(value,iso3c) %>% 
+  rename(gdp_nom_2020=value) %>% 
+  rename(ISO3=iso3c) 
+
+
+
+pop2019 <- wbstats::wb(country = "countries_only", indicator = c("SP.POP.TOTL"), mrv = 20, gapfill = TRUE) %>% 
+  filter(date==2019) %>% 
+  select(value,iso3c) %>% 
+  rename(gdp_nom_usd=value) 
+
+```
+
+```{r}
+## add UN POP data
+## https://population.un.org/wpp/Download/Standard/Population/
+
+unpop <- read_xlsx("WPP2019_POP_F01_1_TOTAL_POPULATION_BOTH_SEXES (2).xlsx", sheet="MEDIUM VARIANT", skip=16)
+unpop <- unpop %>%
+  filter(Type == 'Country/Area') %>%
+  select('Region, subregion, country or area *','Country code','2099','2020')
+
+colnames(unpop) <- c('Country','country_code','pop2099','pop2020')
+
+unpop <- unpop %>%
+  mutate(ISO2 = countrycode(Country, 'country.name', 'iso2c')) %>% 
+  mutate_at(vars('pop2099','pop2020'), function(x) as.numeric(x)) %>%
+  select(-Country, country_code)
+
+
+
+```
+
+```{r}
+
+
+
+df_main <- cc_hsiang %>%
+  left_join(unpop, by='ISO2') %>%
+  #left_join(gdp2019, by='ISO3') %>%
+  mutate(gdp_NOCC_2099=gdppc_NOCC_2099*pop2099) %>% 
+  mutate(gdp_CC_2099=gdppc_CC_2099*pop2099) %>% 
+  mutate(gdp_CC_2020=gdppc_CC_2020*pop2020) %>% 
+  mutate(gdp_impact = gdp_CC_2099 - gdp_NOCC_2099) %>%
+  mutate(gdp_impact_sh = gdp_impact / gdp_NOCC_2099) %>%
+  group_by() %>%
+  mutate(pop_share2099 = pop2099 / sum(pop2099)) %>%
+  mutate(pop_share2020 = pop2020 / sum(pop2020)) %>%
+  mutate(gdp_CC_share2099 = gdp_CC_2099 / sum(gdp_CC_2099)) %>%
+  mutate(gdp_NOCC_share2099 = gdp_NOCC_2099 / sum(gdp_NOCC_2099)) %>%
+  mutate(gdp_CC_share2020 = gdp_CC_2020 / sum(gdp_CC_2020)) %>%
+  mutate(gdp_CC_to_NOCC_2099 = sum(gdp_CC_2099) / sum(gdp_NOCC_2099)) %>%
+  na.omit()
+
+head(df_main)
+
+
+
+
+```
+
+Calculate different means
+
+```{r}
+
+#print(sprintf("A-Impact as percent of per capita GDP: %f", sum(df_2['gdppc_impact']) / sum(df_2['nochange2099'])))
+print(sprintf("B-Average impact across country using per capita: %f", mean(df_main$impact_sh)))
+print(sprintf("C-Average impact across country using total: %f", mean(df_main$gdp_impact_sh)))
+
+print(sprintf("F-2020 population weighted average impact: %f", sum(df_main['impact_sh'] * df_main['pop_share2020'])))
+print(sprintf("G-2099 population weighted average impact: %f", sum(df_main['impact_sh'] * df_main['pop_share2099'])))
+
+print(sprintf("H-2020 GDP weighted average impact: %f", sum(df_main['impact_sh'] * df_main['gdp_CC_share2020'])))
+print(sprintf("I-2099 CC GDP weighted average impact: %f", sum(df_main['impact_sh'] * df_main['gdp_CC_share2099'])))
+print(sprintf("J-2099 NOCC GDP weighted average impact: %f", sum(df_main['impact_sh'] * df_main['gdp_NOCC_share2099'])))
+
+
+```
+
+```{r}
+
+df <- df_main %>% 
+    arrange(impact_sh) %>% 
+    mutate(label = ifelse(pop_share2020>0.02, ISO3,"")) %>% 
+    mutate(w = cumsum(pop_share2020)) %>% 
+    mutate(wm =w - pop_share2020) %>% 
+    mutate(wt = wm + (w - wm)/2) %>% 
+    mutate(mean= (sum(impact_sh*pop_share2020))*100) %>% 
+    mutate(median= (impact_sh[w> 0.5 & wm< 0.5])*100) %>% 
+    mutate(impact_sh_cap=ifelse(impact_sh>2, 2, impact_sh)) %>%
+      mutate(impact_sh_cap_color=ifelse(impact_sh>1, 1, impact_sh))
+
+
+ggplot(df, aes(ymin = 0)) +
+  geom_rect(aes(xmin = wm*100, xmax = w*100, ymax = impact_sh_cap*100, fill = impact_sh_cap_color*100), colour='black', width=0.2) +
+  scale_fill_gradient2(low="#E0494B", high="#4D90BD", midpoint=0) + 
+  geom_text(aes(x = wt*100, y = impact_sh_cap*100+10, label = label, angle = 90 ), size = size_base/4, hjust = 0, color='black') +
+  scale_y_continuous(position = "right", limits=c(-120,220)) + 
+  theme_minimal() + 
+  theme(legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Share of global population in 2020 (%)", y = "Climate impact (% GDP) by 2100")+
+  # geom_vline(xintercept = 50,linetype = "dashed", alpha = 0.5 ) +
+  geom_hline(yintercept = 0) +
+    # geom_hline(yintercept = -90) +
+  # geom_hline(yintercept = -75) +
+    geom_hline(yintercept = -10) +
+  # geom_text(aes(x=50, label="Median line", y=200), colour="grey33", angle=90, vjust = 1.2, size=size_base/4)+  
+  # geom_text(aes(y=round(mean,1), label=paste0("Mean impact:", round(mean,1),"%"), x=0), colour="grey33",  vjust = 1.2, size=size_base/4)+
+  # geom_text(aes(y=round(median,1), label=paste0("Median impact:", round(median,1),"%"), x=0), colour="grey33",  vjust = 1.2, size=size_base/4) +
+  theme(text=element_text(family="Roboto", size=size_base)) + 
+  ggsave(
+    "Fig2_.png",
+    dpi=600,
+    width=18,
+    height=12,
+    scale=1,
+    units="cm",
+    bg="transparent"
+  )
+
+
+p
+
+ggsave("cc-damage-bypop2020_v2.jpg")
+
+
+#  geom_hline(yintercept = 47,linetype = "dashed", alpha = 0.5 ) +
+#  annotate("text", x = 1, y = 49, label = "Forward price = $47", size = 4, hjust = 0, colour = )+
+
+```
+
+```{r}
+df %>% 
+  filter(impact_sh_cap < -0.5) %>%
+  summarize(sum = sum(pop_share2020))
+```
+
+
+
+```{r}
+p <- ggplot(df, aes(ymin = 0)) +
+  geom_rect(aes(xmin = wm, xmax = w, ymax = impact_sh_cap*100), fill = "white", colour = "black") +
+  geom_text(aes(x = wt, y = impact_sh_cap*100+10, label = label, angle = 90 ), size = 3, hjust = 0) +
+  ylim(-100,220)+
+  theme(legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Share of the population in 2020", y = "Climate impact (%GDP)")+
+  geom_vline(xintercept = 0.5,linetype = "dashed", alpha = 0.5 ) +
+  geom_text(aes(x=0.5, label="Median line", y=200), colour="grey33", angle=90, vjust = 1.2, size=3)+  
+  geom_text(aes(x=0.4, label=paste0("Mean impact:", round(mean,1),"%"), y=100), colour="grey33",  vjust = 1.2, size=3)+
+  geom_text(aes(x=0.4, label=paste0("Median impact:", round(median,1),"%"), y=120), colour="grey33",  vjust = 1.2, size=3)  
+```
+
+
+```{r}
+
+df <- df_main %>% 
+    arrange(impact_sh) %>% 
+    mutate(label = ifelse(pop_share2099>0.02, ISO3,"")) %>% 
+    mutate(w = cumsum(pop_share2099)) %>% 
+    mutate(wm =w - pop_share2099) %>% 
+    mutate(wt = wm + (w - wm)/2) %>% 
+    mutate(mean= (sum(impact_sh*pop_share2099))*100) %>% 
+    mutate(median= (impact_sh[w> 0.5 & wm< 0.5])*100) %>% 
+    mutate(impact_sh_cap=ifelse(impact_sh>2, 2, impact_sh))
+
+
+p <- ggplot(df, aes(ymin = 0)) +
+  geom_rect(aes(xmin = wm, xmax = w, ymax = impact_sh_cap*100), fill = "white", colour = "black") +
+  geom_text(aes(x = wt, y = impact_sh_cap*100+10, label = label, angle = 90 ), size = 3, hjust = 0) +
+  ylim(-100,220)+
+  theme(legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Share of the population in 2099", y = "Climate impact (%GDP)")+
+  geom_vline(xintercept = 0.5,linetype = "dashed", alpha = 0.5 ) +
+  geom_text(aes(x=0.5, label="Median line", y=200), colour="grey33", angle=90, vjust = 1.2, size=3)+  
+  geom_text(aes(x=0.4, label=paste0("Mean impact:", round(mean,1),"%"), y=100), colour="grey33",  vjust = 1.2, size=3)+
+  geom_text(aes(x=0.4, label=paste0("Median impact:", round(median,1),"%"), y=120), colour="grey33",  vjust = 1.2, size=3)  
+
+
+p
+
+ggsave("cc-damage-bypop2099.jpg")
+
+```
+
+```{r}
+
+df <- df_main %>% 
+    arrange(impact_sh) %>% 
+    mutate(label = ifelse(gdp_CC_share2020>0.02, ISO3,"")) %>% 
+    mutate(w = cumsum(gdp_CC_share2020)) %>% 
+    mutate(wm =w - gdp_CC_share2020) %>% 
+    mutate(wt = wm + (w - wm)/2) %>% 
+    mutate(mean= (sum(impact_sh*gdp_CC_share2020))*100) %>% 
+    mutate(median= (impact_sh[w> 0.5 & wm< 0.5])*100) %>% 
+    mutate(impact_sh_cap=ifelse(impact_sh>2, 2, impact_sh))
+
+
+p <- ggplot(df, aes(ymin = 0)) +
+  geom_rect(aes(xmin = wm, xmax = w, ymax = impact_sh_cap*100), fill = "white", colour = "black") +
+  geom_text(aes(x = wt, y = impact_sh_cap*100+10, label = label, angle = 90 ), size = 3, hjust = 0) +
+  ylim(-100,220)+
+  theme(legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Share of GDP in 2020", y = "Climate impact (%GDP)")+
+  geom_vline(xintercept = 0.5,linetype = "dashed", alpha = 0.5 ) +
+  geom_text(aes(x=0.5, label="Median line", y=200), colour="grey33", angle=90, vjust = 1.2, size=3)+  
+  geom_text(aes(x=0.4, label=paste0("Mean impact:", round(mean,1),"%"), y=100), colour="grey33",  vjust = 1.2, size=3)+
+  geom_text(aes(x=0.4, label=paste0("Median impact:", round(median,1),"%"), y=120), colour="grey33",  vjust = 1.2, size=3)  
+
+
+p
+
+ggsave("cc-damage-bygdp2020.jpg")
+
+
+```
+```{r}
+install.packages("showtext")
+library(showtext)
+font_add_google("Roboto", "Roboto", regular.wt = 300, bold.wt = 500)
+showtext_auto()
+```
+
+```{r}
+df %>% filter(ISO2 == 'MN')
+```
+
+
+
+```{r}
+df <- df_main %>% 
+    arrange(impact_sh) %>% 
+    mutate(label = ifelse(gdp_CC_share2020>0.02, ISO3,"")) %>% 
+    mutate(w = cumsum(gdp_CC_share2020)) %>% 
+    mutate(wm =w - gdp_CC_share2020) %>% 
+    mutate(wt = wm + (w - wm)/2) %>% 
+    mutate(mean= (sum(impact_sh*gdp_CC_share2020))*100) %>% 
+    mutate(median= (impact_sh[w> 0.5 & wm< 0.5])*100) %>% 
+    mutate(impact_sh_cap=ifelse(impact_sh>1, 1, impact_sh))
+
+sum(df_main['impact_sh'] * df_main['pop_share2020'])
+
+
+pop_weighted_impact = sum(df_main['impact_sh'] * df_main['pop_share2020'])*100
+simple_mean = df_main %>% summarize(mean = mean(impact_sh))
+simple_mean <- as.numeric(simple_mean$mean)
+simple_median <- df_main %>% summarize(median = median(impact_sh))
+simple_median <- as.numeric(simple_median$median)
+size_base = 80
+
+ggplot(df) + 
+  geom_point(aes(x=log(gdppc_CC_2020), y=impact_sh_cap*100, size=pop2020 * 1.1), color="black", alpha=0.75, shape=16) +
+  geom_point(aes(x=log(gdppc_CC_2020), y=impact_sh_cap*100, size=pop2020, colour=impact_sh_cap), alpha=0.75, shape=16) +
+  scale_size_continuous(range = c(1, 20)) + 
+  scale_colour_gradient2(low="#E0494B", high="#4D90BD", midpoint=0) + 
+  geom_hline(aes(yintercept=pop_weighted_impact), linetype='dashed', alpha=0.3) + 
+  # geom_text(aes(x=min(log(gdppc_CC_2020)*0.75), label=paste0("Population weighted impact:", round(pop_weighted_impact,1),"%"), y=pop_weighted_impact), colour="grey33",  vjust = +1.7, size=size_base / 4, family="Roboto", fontface="plain", hjust="left") +
+  geom_hline(aes(yintercept=simple_mean * 100), linetype = "dashed", alpha = 0.3) +
+  # geom_text(aes(x=min(log(gdppc_CC_2020)*0.75), label=paste0("Mean impact:", round(mean,1),"%"), y=mean), colour="grey33",  vjust = -0.5, size=size_base /4, family="Roboto", fontface="plain", hjust="left") + 
+  geom_hline(aes(yintercept=simple_median * 100), linetype = "dashed", alpha = 0.3) +
+  # geom_text(aes(x=min(log(gdppc_CC_2020)*0.75), label=paste0("Median impact:", round(median,1),"%"), y=median), colour="grey33",  vjust = -.5, size=size_base /4, family="Roboto", fontface="plain", hjust="left") + 
+  labs(x= "Per capita GDP (log) in 2020", y="Climate impact (% of GDP) by 2100") + 
+  scale_y_continuous(position = "right", limits=c(-120,120)) + 
+  scale_x_continuous(limits=c(min(log(df$gdppc_CC_2020)*0.75), max(log(df$gdppc_CC_2020))), expand = expansion(add = c(0.3, 0.1))) + 
+  # geom_text(aes(x=log(gdppc_CC_2020), y=impact_sh_cap*100, size=pop2020, label=ISO2)) + 
+  theme_minimal() + 
+  theme(legend.position = "none", panel.grid.major = element_line(size=0.25)) + 
+  theme(text=element_text(family="Roboto", size=size_base)) + 
+  ggsave(
+    "Fig3_.png",
+    dpi=600,
+    width=18,
+    height=12,
+    scale=1,
+    units="cm"
+  )
+
+
+```
+
+
+
+```{r}
+
+
+
+df <- df_main %>% 
+    arrange(impact_sh) %>% 
+    mutate(label = ifelse(gdp_CC_share2099>0.02, ISO3,"")) %>% 
+    mutate(w = cumsum(gdp_CC_share2099)) %>% 
+    mutate(wm =w - gdp_CC_share2099) %>% 
+    mutate(wt = wm + (w - wm)/2) %>% 
+    mutate(mean= (sum(impact_sh*gdp_CC_share2020))*100) %>% 
+    mutate(median= (impact_sh[w> 0.5 & wm< 0.5])*100) %>% 
+    mutate(impact_sh_cap=ifelse(impact_sh>2, 2, impact_sh))
+
+
+p <- ggplot(df, aes(ymin = 0)) +
+  geom_rect(aes(xmin = wm, xmax = w, ymax = impact_sh_cap*100), fill = "white", colour = "black") +
+  geom_text(aes(x = wt, y = impact_sh_cap*100+10, label = label, angle = 90 ), size = 3, hjust = 0) +
+  ylim(-100,220)+
+  theme(legend.position = "none", panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x = "Share of GDP in 2099 in climate change scenario", y = "Climate impact (%GDP)")+
+  geom_vline(xintercept = 0.5,linetype = "dashed", alpha = 0.5 ) +
+  geom_text(aes(x=0.5, label="Median line", y=200), colour="grey33", angle=90, vjust = 1.2, size=3)+  
+  geom_text(aes(x=0.4, label=paste0("Mean impact:", round(mean,1),"%"), y=100), colour="grey33",  vjust = 1.2, size=3)+
+  geom_text(aes(x=0.4, label=paste0("Median impact:", round(median,1),"%"), y=120), colour="grey33",  vjust = 1.2, size=3)  
+
+
+p
+ggsave("cc-damage-bygdp2099.jpg")
+
+
+
+```
+
+```
+
