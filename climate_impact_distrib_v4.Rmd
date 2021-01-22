@@ -32,11 +32,12 @@ size_base = 80
 # Burke, Hsiang, Miguel (2015)
 # https://web.stanford.edu/~mburke/climate/data.html
 
+
 df1 <- read_csv("GDPcap_ClimateChange_RCP85_SSP5.csv")
 df1 <- df1 %>%
   select(ISO3, ISO2, `2099`, `2020`) %>%
   rename(gdppc_CC_2099 = `2099`) %>% 
-    rename(gdppc_CC_2020 = `2020`) 
+  rename(gdppc_CC_2020 = `2020`) 
 
 
 df2 <- read_csv("GDPcap_NOClimateChange_RCP85_SSP5.csv") %>%
@@ -146,18 +147,19 @@ Calculate different means
 
 ```{r}
 
-
-print(paste0("A- Simple mean (equal weight): ", round(mean(df_main$gdp_impact_sh)*100,1)," %"))
-print(paste0("B- Median country: ", round(median(df_main$gdp_impact_sh)*100,1)," %"))
-print(paste0("C- Population weighted (2020): ", round(sum(df_main['impact_sh'] * df_main['pop_share2020'])*100,1)," %"))
-print(paste0("D- Population weighted (2099): ", round(sum(df_main['impact_sh'] * df_main['pop_share2099'])*100,1)," %"))
-print(paste0("E- GDP weighted (2020):", round(sum(df_main['impact_sh'] * df_main['gdp_CC_share2020'])*100,1)," %"))
-print(paste0("F- GDP weighted (2099 under no climate change scenario): ", round(sum(df_main['impact_sh'] * df_main['gdp_NOCC_share2099'])*100,1)," %"))
-
-print(paste0("G- Emission weighted (2018): ", round(sum(df_main['impact_sh'] * df_main['co2_s'])*100,1)," %"))
-print(paste0("H- Cumulative emission weighted (1751-2018): ", round(sum(df_main['impact_sh'] * df_main['cumco2_s'])*100,1)," %"))
+print("A- Impact on global output in 2100 (Burke et al. central estimate): - 23 %")
+print(paste0("B- Simple mean across countries (equal weight): ", round(mean(df_main$gdp_impact_sh)*100,0)," %"))
+print(paste0("C- Median country: ", round(median(df_main$gdp_impact_sh)*100,0)," %"))
+print(paste0("D- Population weighted (2020): ", round(sum(df_main['impact_sh']* df_main['pop_share2020'])*100,0)," %"))
+print(paste0("E- Population weighted (2099): ", round(sum(df_main['impact_sh'] * df_main['pop_share2099'])*100,0)," %"))
+print(paste0("F- GDP weighted (2020):", round(sum(df_main['impact_sh'] * df_main['gdp_CC_share2020'])*100,0)," %"))
+print(paste0("G- Emission weighted (2018): ", round(sum(df_main['impact_sh'] * df_main['co2_s'])*100,0)," %"))
+print(paste0("H- Cumulative emission weighted (1751-2018): ", round(sum(df_main['impact_sh'] * df_main['cumco2_s'])*100,0)," %"))
 
 
+print(paste0("X- GDP weighted (2099 under no climate change scenario): ", round(sum(df_main['impact_sh'] * df_main['gdp_NOCC_share2099'])*100,0)," %"))
+
+print(paste0("Q- GDP weighted (2099 under climate change scenario): ", round(sum(df_main['impact_sh'] * df_main['gdp_CC_share2099'])*100,0)," %"))
 
 ```
 
